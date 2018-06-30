@@ -33,6 +33,22 @@ class RedefinedWhileUnused(Message):
         self.message_args = (name, orig_loc.lineno)
 
 
+class RedefinedBuiltin(Message):
+    message = 'builtin %r redefined was recently used at %r'
+
+    def __init__(self, filename, loc, name, orig_loc):
+        Message.__init__(self, filename, loc)
+        self.message_args = (name, orig_loc.lineno)
+
+
+class RedefinedBuiltinUnused(Message):
+    message = 'redefinition of unused builtin %r from line %r'
+
+    def __init__(self, filename, loc, name, orig_loc):
+        Message.__init__(self, filename, loc)
+        self.message_args = (name, orig_loc.lineno)
+
+
 class RedefinedInListComp(Message):
     message = 'list comprehension redefines %r from line %r'
 
