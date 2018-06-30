@@ -160,6 +160,8 @@ class Binding(object):
         self.name = name
         self.source = source
         self.used = False
+        self.definitions = list()
+        self.usages = list()
 
     def __str__(self):
         return self.name
@@ -595,6 +597,49 @@ class Checker(object):
     def popScope(self):
         self.deadScopes.append(self.scopeStack.pop())
 
+    def check_redefinitions(self, value):
+        # Append False for every definition and True for every usage
+        definitions = [(definition, False) for definition in value.definitions]
+        usages = [(usage, True) for usage in value.usages]
+
+        # Check for Try/Catch guard it must always have
+        # one definition and one usage
+        if len(definitions) == 1 and len(usages) == 1:
+            if self.check_for_module_guards(definitions[0][0]):
+                return
+
+        # Create a data flow sequence for a node sorted based on
+        # lineno and column offset
+        data_flow_list = usages[:]
+        data_flow_list.extend(definitions)
+        data_flow_list.sort(key=lambda x: (x[0].lineno, x[0].col_offset))
+
+        # Maintain a record of last usage and last definition
+        was_defined, defined_at = False, False
+        was_used, used_at = False, False
+
+        for data in data_flow_list:
+            # If a builtin is redefined without previous usage
+            if was_defined and not data[1]:
+                self.report(messages.RedefinedBuiltinUnused,
+                            data[0], value.name, defined_at)
+            # If a builtin is redefined with previous usage
+            elif was_used and not data[1]:
+                if isinstance(data[0].parent, ast.arguments):
+                    arg_value = (getattr(data[0], 'arg', False)
+                                 or getattr(data[0], 'id'))
+                    if Checker.check_arg_default_value(
+                            data[0].parent.parent, arg_value):
+                        continue
+                self.report(messages.RedefinedBuiltinAfterUsage,
+                            data[0], value.name, used_at)
+            if not data[1]:
+                was_defined, defined_at = True, data[0]
+                was_used, used_at = False, False
+            elif data[1]:
+                was_defined, defined_at = False, False
+                was_used, used_at = True, data[0]
+
     def checkDeadScopes(self):
         """
         Look at scopes which have been fully examined and report names in them
@@ -644,6 +689,12 @@ class Checker(object):
                         else:
                             messg = messages.RedefinedWhileUnused
                         self.report(messg, node, value.name, value.source)
+
+                # Checks for violations when using builtins
+                if (isinstance(scope, ModuleScope) and value.name != '_' and
+                        value.name in self.builtIns):
+                    self.check_redefinitions(value)
+
 
     def pushScope(self, scopeClass=FunctionScope):
         self.scopeStack.append(scopeClass())
@@ -700,6 +751,59 @@ class Checker(object):
                     return True
         return False
 
+    @staticmethod
+    def check_arg_default_value(node, arg):
+        """
+        Checks if the argument and its default value are same.
+
+        Identifies cases like foo(range=range): pass
+
+        :param node:    AST node to be iterated upon
+        :param arg:     The name of the argument
+        :return:        bool True/False
+        """
+        try:
+            args = [a.arg for a in node.args.args]
+        except AttributeError:
+            args = [a.id for a in node.args.args]
+
+        defaults = list()
+        for default in node.args.defaults:
+            if hasattr(default, 'id'):
+                defaults.append(default.id)
+            if hasattr(default, 's'):
+                defaults.append(default.s)
+            if hasattr(default, 'n'):
+                defaults.append(default.n)
+        offset = len(args) - len(defaults)
+
+        if arg in args and arg in defaults:
+            return args.index(arg) == defaults.index(arg) + offset
+        return False
+
+    def is_redefinition_allowed(self, node, value):
+        redefinition_allowed = False
+
+        # Check for special builtins like __file__
+        if '__' in (value.name[:2], value.name[-2:]):
+            redefinition_allowed = True
+
+        # Check if redefinition is at guard level
+        if self.check_for_module_guards(node):
+            redefinition_allowed = True
+        # Check if it is a class method
+        if (isinstance(node, ast.FunctionDef)
+                and isinstance(node.parent, ast.ClassDef)):
+            redefinition_allowed = True
+
+        # Check for `def(range=range): pass` like redefinitions
+        if isinstance(node.parent, ast.arguments):
+            arg_value = getattr(node, 'arg', False) or getattr(node, 'id')
+            if Checker.check_arg_default_value(node.parent.parent, arg_value):
+                redefinition_allowed = True
+
+        return redefinition_allowed
+
     def addBinding(self, node, value):
         """
         Called when a binding is altered.
@@ -713,7 +817,15 @@ class Checker(object):
                 break
         existing = scope.get(value.name)
 
-        if (existing and not isinstance(existing, Builtin) and
+        if existing and value.name != '_' and value.name in self.scopeStack[0]:
+            self.scopeStack[0][value.name].definitions.append(node)
+
+        if existing and value.name != '_' and value.name in self.builtIns:
+            if not self.is_redefinition_allowed(node, value):
+                self.report(messages.RedefinedBuiltin,
+                            node, value.name)
+
+        elif (existing and not isinstance(existing, Builtin) and
                 not self.differentForks(node, existing.source)):
 
             parent_stmt = self.getParent(value.source)
@@ -735,11 +847,48 @@ class Checker(object):
             elif isinstance(existing, Importation) and value.redefines(existing):
                 existing.redefined.append(node)
 
+        usages = list()
+        definitions = list()
+
         if value.name in self.scope:
             # then assume the rebound name is used as a global or within a loop
             value.used = self.scope[value.name].used
+            usages = self.scope[value.name].usages
+            definitions = self.scope[value.name].definitions
 
         self.scope[value.name] = value
+        # Persisting information about definitions and usages
+        self.scope[value.name].usages = usages
+        self.scope[value.name].definitions = definitions
+
+    def check_for_module_guards(self, node):
+        """
+        Checks if a node is present inside a guard
+        i.e If, Else, Try block and the guard is
+        at module scope
+        """
+        if getattr(node, 'parent', None) is None:
+            return False
+
+        parent = node.parent
+        is_enclosed = False
+
+        if isinstance(parent, ast.Assign):
+            parent = parent.parent
+        if isinstance(parent, ast.ExceptHandler):
+            parent = parent.parent
+        if not PY2:
+            if isinstance(parent, (ast.If, ast.Try)):
+                is_enclosed = True
+        else:
+            if (isinstance(parent, ast.TryExcept) and
+                    isinstance(parent.parent, ast.TryFinally)):
+                parent = parent.parent
+                is_enclosed = True
+            elif isinstance(parent, (ast.If, ast.TryExcept)):
+                is_enclosed = True
+
+        return getattr(parent, 'parent', None) == self.root and is_enclosed
 
     def getNodeHandler(self, node_class):
         try:
@@ -756,6 +905,9 @@ class Checker(object):
 
         in_generators = None
         importStarred = None
+
+        if name != '_' and name in self.scopeStack[0]:
+            self.scopeStack[0][name].usages.append(node)
 
         # try enclosing function scopes and global scope
         for scope in self.scopeStack[-1::-1]:
