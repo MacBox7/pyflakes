@@ -20,7 +20,7 @@ class TestBuiltins(TestCase):
 
         self.flakes('''
         __file__ = 10
-        ''', m.RedefinedBuiltin)
+        ''')
 
     def test_redefinition_by_overriding(self):
         self.flakes('''
@@ -33,11 +33,12 @@ class TestBuiltins(TestCase):
             pass
         ''', m.RedefinedBuiltin)
 
+        # Methods do not redefine functions
         self.flakes('''
         class Foo:
             def max():
                 pass
-        ''', m.RedefinedBuiltin)
+        ''')
 
     def test_redefinition_in_list_comprehension(self):
         self.flakes('''

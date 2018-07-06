@@ -707,9 +707,12 @@ class Checker(object):
         existing = scope.get(value.name)
 
         if existing and value.name != '_' and value.name in self.builtIns:
-            if not self.check_for_module_guards(node):
-                self.report(messages.RedefinedBuiltin,
-                            node, value.name)
+            if (not self.check_for_module_guards(node) and
+                    '__' not in (value.name[:2], value.name[-2:])):
+                if not (isinstance(node, ast.FunctionDef) and
+                        isinstance(node.parent, ast.ClassDef)):
+                    self.report(messages.RedefinedBuiltin,
+                                node, value.name)
 
         elif existing and not self.differentForks(node, existing.source):
 
