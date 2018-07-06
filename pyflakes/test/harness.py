@@ -15,8 +15,8 @@ class TestCase(unittest.TestCase):
 
     withDoctest = False
 
-    def flakes(self, input, *expectedOutputs, **kw):
-        tree = compile(textwrap.dedent(input), "<test>", "exec", PyCF_ONLY_AST)
+    def flakes(self, _input, *expectedOutputs, **kw):
+        tree = compile(textwrap.dedent(_input), "<test>", "exec", PyCF_ONLY_AST)
         w = checker.Checker(tree, withDoctest=self.withDoctest, **kw)
         outputs = [type(o) for o in w.messages]
         expectedOutputs = list(expectedOutputs)
@@ -28,7 +28,7 @@ for input:
 expected outputs:
 %r
 but got:
-%s''' % (input, expectedOutputs, '\n'.join([str(o) for o in w.messages])))
+%s''' % (_input, expectedOutputs, '\n'.join([str(o) for o in w.messages])))
         return w
 
     if not hasattr(unittest.TestCase, 'assertIs'):

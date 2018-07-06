@@ -71,17 +71,17 @@ class SysStreamCapturing(object):
     os.linesep during __exit__.
     """
 
-    def _create_StringIO(self, buffer=None):
+    def _create_StringIO(self, _buffer=None):
         # Python 3 has a newline argument
         try:
-            return StringIO(buffer, newline=os.linesep)
+            return StringIO(_buffer, newline=os.linesep)
         except TypeError:
             self._newline = True
             # Python 2 creates an input only stream when buffer is not None
-            if buffer is None:
+            if _buffer is None:
                 return StringIO()
             else:
-                return StringIO(buffer)
+                return StringIO(_buffer)
 
     def __init__(self, stdin):
         self._newline = False

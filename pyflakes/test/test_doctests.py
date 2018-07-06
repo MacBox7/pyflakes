@@ -23,9 +23,9 @@ class _DoctestMixin(object):
 
     withDoctest = True
 
-    def doctestify(self, input):
+    def doctestify(self, _input):
         lines = []
-        for line in textwrap.dedent(input).splitlines():
+        for line in textwrap.dedent(_input).splitlines():
             if line.strip() == '':
                 pass
             elif (line.startswith(' ') or
@@ -46,8 +46,8 @@ class _DoctestMixin(object):
             ''')
         return doctestificator % "\n       ".join(lines)
 
-    def flakes(self, input, *args, **kw):
-        return super(_DoctestMixin, self).flakes(self.doctestify(input), *args, **kw)
+    def flakes(self, _input, *args, **kw):
+        return super(_DoctestMixin, self).flakes(self.doctestify(_input), *args, **kw)
 
 
 class Test(TestCase):

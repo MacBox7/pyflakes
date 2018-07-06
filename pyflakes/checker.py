@@ -521,7 +521,7 @@ class Checker(object):
         self.popScope()
         self.checkDeadScopes()
 
-    def deferFunction(self, callable):
+    def deferFunction(self, _callable):
         """
         Schedule a function handler to be called just before completion.
 
@@ -530,14 +530,14 @@ class Checker(object):
         `callable` is called, the scope at the time this is called will be
         restored, however it will contain any new bindings added to it.
         """
-        self._deferredFunctions.append((callable, self.scopeStack[:], self.offset))
+        self._deferredFunctions.append((_callable, self.scopeStack[:], self.offset))
 
-    def deferAssignment(self, callable):
+    def deferAssignment(self, _callable):
         """
         Schedule an assignment handler to be called just after deferred
         function handlers.
         """
-        self._deferredAssignments.append((callable, self.scopeStack[:], self.offset))
+        self._deferredAssignments.append((_callable, self.scopeStack[:], self.offset))
 
     def runDeferred(self, deferred):
         """
